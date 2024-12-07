@@ -38,14 +38,14 @@ jobs:
 
       # Build the Docker image
       - name: Build the Docker image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/hackwknd-api:${{ github.sha }} .
+        run: docker build -t ${{ env.DOCKER_USERNAME }}/hackwknd-api:${{ github.sha }} .
 
       # Tag the Docker image (optional)
       - name: Tag Docker image with latest
-        run: docker tag ${{ secrets.DOCKER_USERNAME }}/hackwknd-api:${{ github.sha }} ${{ secrets.DOCKER_USERNAME }}/hackwknd-api:latest
+        run: docker tag ${{ env.DOCKER_USERNAME }}/hackwknd-api:${{ github.sha }} ${{ env.DOCKER_USERNAME }}/hackwknd-api:latest
 
       # Push the Docker image to Docker Hub
       - name: Push Docker image
         run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/hackwknd-api:${{ github.sha }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/hackwknd-api:latest
+          docker push ${{ env.DOCKER_USERNAME }}/hackwknd-api:${{ github.sha }}
+          docker push ${{ env.DOCKER_USERNAME }}/hackwknd-api:latest
