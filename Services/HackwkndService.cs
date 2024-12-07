@@ -73,7 +73,7 @@ public static class HackwkndService
         return user;
     }
 
-    public static async Task<bool> InsertNote(InsertNoteRequest req, ApplicationDbContext dbContext, User user)
+    public static async Task<string> InsertNote(InsertNoteRequest req, ApplicationDbContext dbContext, User user)
     {
         var extdata = new NoteExtdata()
         {
@@ -97,7 +97,7 @@ public static class HackwkndService
         dbContext.Add(note);
         await dbContext.SaveChangesAsync();
 
-        return true;
+        return note.Recid.ToString();
     }
 
     public static async Task<List<NoteDto>> NoteList(User user, ApplicationDbContext dbContext)
@@ -408,6 +408,52 @@ public static class HackwkndService
         
         // append the knowledge base
         var notepreparation = string.Join("\n", notes.Select(x => $"{x.Recid}: {x.Datacontent}").ToList());
+        
+        // prepare the chat model
+        var messages = new List<ChatMessage>
+        {
+            new SystemChatMessage($"You are an expert in this topics {string.Join(", ", request.tags)} . Answer questions based only on the provided knowledge base."),
+            new AssistantChatMessage($"Knowledge Base: {notepreparation}"),
+            new UserChatMessage($"Based on the provided knowledge base, which notes have mention on this? Question: {request.question}")
+        };
+        
+        ChatCompletionOptions options = new()
+        {
+            ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
+                jsonSchemaFormatName: "TrackNotes",
+                jsonSchema: BinaryData.FromBytes("""
+                    {
+                      "type": "object",
+                      "properties": {
+                        "trackedNotes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": ["trackNotes"],
+                      "additionalProperties": false
+                    }
+                    """u8.ToArray()),
+                jsonSchemaIsStrict: true)
+        };
+        
+        ChatCompletion completion = await chatClient.CompleteChatAsync(messages, options);
+
+        // var output = JObject.Parse(completion.Content[0].Text);
+        // var expectedOutputString = output["questions"];
+        // var expectedOutput = JsonSerializer.Deserialize<List<QuestionDto>>(expectedOutputString.ToString());
+
+        // var response = new GenerateQuestionResponse()
+        // {
+        //     type = GenQuestionResponseType.question.ToString(),
+        //     chatId = chatLog.Recid.ToString(),
+        //     question = expectedOutput
+        // };
+        //
+        // return response;
+        
         
         // prepared konwledge base
         

@@ -74,7 +74,7 @@ public class HackwkndController: ControllerBase
         var user = await HackwkndService.getUserInfo(token, _dbContext);
 
         var insertNote = await HackwkndService.InsertNote(request, _dbContext, user);
-        return new ActionResult<InsertNoteResponse>(new InsertNoteResponse(){success = insertNote});
+        return new ActionResult<InsertNoteResponse>(new InsertNoteResponse(){noteid = insertNote});
     }
     
     [HttpGet("notelist")]
@@ -142,7 +142,7 @@ public class HackwkndController: ControllerBase
     }
     
     [HttpPost("topictracking")]
-    public async Task<ActionResult<GenerateQuestionResponse>> AskNotesRef([FromBody] GenerateQuestionRequest request) {
+    public async Task<ActionResult<AskNotesRefResponse>> AskNotesRef([FromBody] AskNotesRefRequest request) {
         // Retrieve token from the Authorization header
         var authHeader = Request.Headers["Authorization"].ToString();
 
@@ -155,17 +155,8 @@ public class HackwkndController: ControllerBase
         var token = authHeader.Substring("Bearer ".Length);
         var user = await HackwkndService.getUserInfo(token, _dbContext);
 
-        var output = new GenerateQuestionResponse();
-        if (request.type == GenQuestionRequestType.request.ToString())
-        {
-            output = await HackwkndService.GenerateQuestion(request, _dbContext, _chatClient, user);
-        }
-        else if (request.type == GenQuestionRequestType.answer.ToString())
-        {
-            output = await HackwkndService.AnswerQuestion(request, _dbContext, user, _chatClient);
+        var trackNotes = await HackwkndService.TrackNotes(request, user, _dbContext, _chatClient);
 
-        }
-        
-        return Ok(output);
+            return Ok(trackNotes);
     }
 }

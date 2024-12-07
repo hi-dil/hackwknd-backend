@@ -2,5 +2,5 @@ namespace hackwknd_api.Models.DTO;
 
 public class InsertNoteResponse
 {
-    public bool success { get; set; }
+    public string noteid { get; set; }
 }
