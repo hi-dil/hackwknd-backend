@@ -10,5 +10,5 @@ public partial class Notesperusertag
     public Guid? Userrecid { get; set; }
 
     public string? Tag { get; set; }
-    public bool IsPublic { get; set; }
+    public string Ispublic { get; set; }
 }

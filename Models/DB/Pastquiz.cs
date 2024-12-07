@@ -11,4 +11,5 @@ public class Pastquiz
 
     public string noterecid { get; set; }
     public string analysis { get; set; }
+    public DateTime completeddateutc { get; set; }
 }

@@ -4,6 +4,7 @@ public class AnalysisDto
 {
     public List<Answer> questions { get; set; }
     public Score score { get; set; }
+    public DateTime completedDate { get; set; }
 }
 
 public class Answer

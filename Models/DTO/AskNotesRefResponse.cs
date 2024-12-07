@@ -12,4 +12,5 @@ public class TrackedNotes
     public string title { get; set; }
     public string publishedBy { get; set; }
     public string content { get; set; }
+    public string noteid { get; set;  }
 }

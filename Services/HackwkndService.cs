@@ -1,6 +1,8 @@
+using System.Runtime.InteropServices.JavaScript;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using hackwknd_api.DB;
 using hackwknd_api.Models;
 using hackwknd_api.Models.DB;
@@ -83,11 +85,13 @@ public static class HackwkndService
         
         // Serialize the object to a JSON string
         var extdataString = JsonSerializer.Serialize(extdata);
+        
+        var content = Regex.Replace(req.content, @"\s+", " ").Trim();
 
         var note = new Note()
         {
             Recid = Guid.NewGuid(),
-            Datacontent = req.content,
+            Datacontent = content,
             Userrecid = user.Recid,
             Createdateutc = DateTime.UtcNow,
             Lastupdateutc = DateTime.UtcNow,
@@ -112,10 +116,11 @@ public static class HackwkndService
             var pastQuiz = dbContext.Pastquizes
                 .Where(x => x.noterecid == note.Recid.ToString() && x.userrecid == user.Recid).ToList();
             List<AnalysisDto> analysislist = new();
-
+            
             foreach (var quiz in pastQuiz)
             {
                 var analysis = JsonSerializer.Deserialize<AnalysisDto>(quiz.analysis);
+                analysis.completedDate = quiz.completeddateutc.AddHours(8);
                 analysislist.Add(analysis);
             }
             
@@ -382,6 +387,7 @@ public static class HackwkndService
         structuredLogs.analysis = expectedOutput.analysis;
         
         chatHistory.Chathistory1 = JsonSerializer.Serialize(structuredLogs);
+        chatHistory.Lastupdateutc = DateTime.UtcNow;
         dbContext.Update(chatHistory);
         await dbContext.SaveChangesAsync();
 
@@ -399,7 +405,7 @@ public static class HackwkndService
         ApplicationDbContext dbContext, ChatClient chatClient)
     {
         // grab knowledge base
-        var noterecids = dbContext.Notesperusertags.Where(x => (x.Userrecid == user.Recid || x.IsPublic) && request.tags.Contains(x.Tag))
+        var noterecids = dbContext.Notesperusertags.Where(x => (x.Userrecid == user.Recid  && request.subject.Contains(x.Tag)) || (x.Ispublic == "true" && request.subject.Contains(x.Tag)))
             .Select(x => x.Recid)
             .Distinct()
             .ToList();
@@ -412,9 +418,9 @@ public static class HackwkndService
         // prepare the chat model
         var messages = new List<ChatMessage>
         {
-            new SystemChatMessage($"You are an expert in this topics {string.Join(", ", request.tags)} . Answer questions based only on the provided knowledge base."),
+            new SystemChatMessage($"You are an expert in this topics {string.Join(", ", request.subject)} . Answer questions based only on the provided knowledge base."),
             new AssistantChatMessage($"Knowledge Base: {notepreparation}"),
-            new UserChatMessage($"Based on the provided knowledge base, which notes have mention on this? Question: {request.question}")
+            new UserChatMessage($"Based on the provided knowledge base, which notes have mention on this? And can you answer what is the related topic for the question based on the given knowledge base? Question: {request.question}")
         };
         
         ChatCompletionOptions options = new()
@@ -422,46 +428,60 @@ public static class HackwkndService
             ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
                 jsonSchemaFormatName: "TrackNotes",
                 jsonSchema: BinaryData.FromBytes("""
-                    {
-                      "type": "object",
-                      "properties": {
-                        "trackedNotes": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
+                        {
+                          "type": "object",
+                          "properties": {
+                            "trackedNotes": {
+                              "type": "object",
+                              "properties": {
+                                "notesid": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "relatedTopic": {
+                                    "type": "string"
+                                }
+                              },
+                              "required": ["notesid", "relatedTopic"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": ["trackedNotes"],
+                          "additionalProperties": false
                         }
-                      },
-                      "required": ["trackNotes"],
-                      "additionalProperties": false
-                    }
                     """u8.ToArray()),
                 jsonSchemaIsStrict: true)
         };
         
         ChatCompletion completion = await chatClient.CompleteChatAsync(messages, options);
 
-        // var output = JObject.Parse(completion.Content[0].Text);
-        // var expectedOutputString = output["questions"];
-        // var expectedOutput = JsonSerializer.Deserialize<List<QuestionDto>>(expectedOutputString.ToString());
+        var output = JObject.Parse(completion.Content[0].Text);
+        var expectedOutputString = output["trackedNotes"];
+        var expectedOutput = JsonSerializer.Deserialize<TrackedNotesDto>(expectedOutputString.ToString());
 
-        // var response = new GenerateQuestionResponse()
-        // {
-        //     type = GenQuestionResponseType.question.ToString(),
-        //     chatId = chatLog.Recid.ToString(),
-        //     question = expectedOutput
-        // };
-        //
-        // return response;
+        var trackedNotes = dbContext.Notes.Where(x => expectedOutput.notesid.Contains(x.Recid.ToString())).ToList()
+            .Join(dbContext.Users,
+                note => note.Userrecid,
+                user => user.Recid,
+                (note, user) => new TrackedNotes()
+                {
+                    content = note.Datacontent,
+                    publishedBy = user.Name,
+                    title = note.Extdata.RootElement.GetProperty("title").ToString(),
+                    noteid = note.Recid.ToString()
+                }).ToList();
+
+        var response = new AskNotesRefResponse()
+        {
+            subject = request.subject,
+            trackedNotes = trackedNotes,
+            topicResult = expectedOutput.relatedTopic
+            
+        };
         
-        
-        // prepared konwledge base
-        
-        // ask gpt
-        
-        
-        // process the response
-        return new AskNotesRefResponse();
+        return response;
     }
 
 
