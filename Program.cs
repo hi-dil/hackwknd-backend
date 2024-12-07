@@ -46,8 +46,6 @@ builder.Services.AddSwaggerGen(options =>
 });
 builder.Services.AddAutoMapper(typeof(Program));
 
-Console.WriteLine(builder.Configuration.GetConnectionString("Default"));
-
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
