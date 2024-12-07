@@ -38,7 +38,7 @@ jobs:
 
       # Build the Docker image
       - name: Build the Docker image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/hackwknd-api:${{ github.sha }} -f ./Dockerfile .
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/hackwknd-api:${{ github.sha }} .
 
       # Tag the Docker image (optional)
       - name: Tag Docker image with latest
