@@ -141,7 +141,7 @@ public class HackwkndController: ControllerBase
         return Ok(output);
     }
     
-    [HttpPost("asknotesref")]
+    [HttpPost("topictracking")]
     public async Task<ActionResult<GenerateQuestionResponse>> AskNotesRef([FromBody] GenerateQuestionRequest request) {
         // Retrieve token from the Authorization header
         var authHeader = Request.Headers["Authorization"].ToString();

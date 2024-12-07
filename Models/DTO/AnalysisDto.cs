@@ -11,6 +11,7 @@ public class Answer
     public string question { get; set; }
     public string explanation { get; set; }
     public bool isCorrect { get; set; }
+    public string userAnswer { get; set; }
 }
 
 public class Score

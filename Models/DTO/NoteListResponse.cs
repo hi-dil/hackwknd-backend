@@ -10,4 +10,6 @@ public class NoteDto
     public string title { get; set; }
     public List<string> tags { get; set; }
     public string content { get; set; }
+    public List<AnalysisDto> pastQuiz { get; set; }
+    public string noteid { get; set; }
 }

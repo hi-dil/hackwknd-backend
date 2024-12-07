@@ -7,7 +7,7 @@ public class ChatHistoryExtdata
 {
     public string type { get; set; }
     public List<ChatLog> logs { get; set; }
-    public Guid noteRecid { get; set; }
-    public List<AnalysisDto> analysis { get; set; }
+    public string noteRecid { get; set; }
+    public AnalysisDto analysis { get; set; }
     
 }

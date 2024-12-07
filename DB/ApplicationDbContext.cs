@@ -21,6 +21,7 @@ public partial class ApplicationDbContext : DbContext
     public virtual DbSet<Session> Sessions { get; set; }
 
     public virtual DbSet<User> Users { get; set; }
+    public virtual DbSet<Pastquiz> Pastquizes { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -70,6 +71,15 @@ public partial class ApplicationDbContext : DbContext
             entity.Property(e => e.Recid).HasColumnName("recid");
             entity.Property(e => e.Tag).HasColumnName("tag");
             entity.Property(e => e.Userrecid).HasColumnName("userrecid");
+            entity.Property(e => e.IsPublic).HasColumnName("ispublic");
+            
+        });
+        
+        modelBuilder.Entity<Pastquiz>(entity =>
+        {
+            entity
+                .HasNoKey()
+                .ToView("pastquiz");
         });
 
         modelBuilder.Entity<Session>(entity =>

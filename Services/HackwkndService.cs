@@ -109,8 +109,18 @@ public static class HackwkndService
         
         foreach (var note in notes)
         {
+            var pastQuiz = dbContext.Pastquizes
+                .Where(x => x.noterecid == note.Recid.ToString() && x.userrecid == user.Recid).ToList();
+            List<AnalysisDto> analysislist = new();
+
+            foreach (var quiz in pastQuiz)
+            {
+                var analysis = JsonSerializer.Deserialize<AnalysisDto>(quiz.analysis);
+                analysislist.Add(analysis);
+            }
+            
             var extdata = JsonSerializer.Deserialize<NoteExtdata>(note.Extdata);
-            var notedto = new NoteDto() { content = note.Datacontent, tags = extdata.tags, title = extdata.title };
+            var notedto = new NoteDto() { content = note.Datacontent, tags = extdata.tags, title = extdata.title, noteid = note.Recid.ToString(), pastQuiz = analysislist};
             notelist.Add(notedto);
         }
 
@@ -141,15 +151,17 @@ public static class HackwkndService
         ApplicationDbContext dbContext, ChatClient chatClient, User user)
     {
         // grab knowledge base
-        var noterecids = dbContext.Notesperusertags.Where(x => x.Userrecid == user.Recid && request.tags.Contains(x.Tag))
-            .Select(x => x.Recid)
-            .Distinct()
-            .ToList();
-        
-        var notes = dbContext.Notes.Where(x => noterecids.Contains(x.Recid)).ToList();
-        
-        // append the knowledge base
-        var notepreparation = string.Join("\n", notes.Select(x => x.Datacontent).ToList());
+        // var noterecids = dbContext.Notesperusertags.Where(x => x.Userrecid == user.Recid && request.tags.Contains(x.Tag))
+        //     .Select(x => x.Recid)
+        //     .Distinct()
+        //     .ToList();
+        //
+        // var notes = dbContext.Notes.Where(x => noterecids.Contains(x.Recid)).ToList();
+        //
+        // // append the knowledge base
+        // var notepreparation = string.Join("\n", notes.Select(x => x.Datacontent).ToList());
+
+        var notepreparation = dbContext.Notes.Where(x => request.noteid == x.Recid.ToString()).Select(x => x.Datacontent).FirstOrDefault();
         
         // prepare the chat model
         var messages = new List<ChatMessage>
@@ -226,7 +238,8 @@ public static class HackwkndService
         var chatHistoryExt = new ChatHistoryExtdata()
         {
             type = ChatType.question.ToString(),
-            logs = logs
+            logs = logs,
+            noteRecid = request.noteid
         };
 
         var logsString = JsonSerializer.Serialize(chatHistoryExt);
@@ -293,9 +306,13 @@ public static class HackwkndService
                     break;
             }
         }
+
+        var content =
+            $"This is the user's answer based on the generated question, can you give explain the correct answer for all question, check if the answer provided for each question is correct or not? " +
+            $" And how many they score based on the total question generated? \\n User Answer: {JsonSerializer.Serialize(request.answers)}";
         
-        messages.Add(new UserChatMessage($"This is the user's answer based on the generated question, can you give explain the correct answer for all question, check if the answer provided for each question is correct or not? " +
-                                         $" And how many they score based on the total question generated? \\n User Answer: {JsonSerializer.Serialize(request.answers)}"));
+        messages.Add(new UserChatMessage(content));
+        structuredLogs.logs.Add(new ChatLog(){actor = "user", isHidden = false, message = content });
         
         // ask gpt
         ChatCompletionOptions options = new()
@@ -322,9 +339,12 @@ public static class HackwkndService
                                       },
                                       "isCorrect": {
                                         "type": "boolean"
+                                      },
+                                      "userAnswer": {
+                                        "type": "string"
                                       }
                                     },
-                                    "required": ["question", "explanation", "isCorrect"],
+                                    "required": ["question", "explanation", "isCorrect", "userAnswer"],
                                     "additionalProperties": false
                                   }
                                 },
@@ -354,11 +374,16 @@ public static class HackwkndService
         };
         
         ChatCompletion completion = await chatClient.CompleteChatAsync(messages, options);
-        
-        // save to db
-        // structuredLogs.Add(new ChatLog(){});
         var output = JObject.Parse(completion.Content[0].Text);
         var expectedOutput = JsonSerializer.Deserialize<GenerateQuestionResponse>(output.ToString());
+        
+        // save to db
+        structuredLogs.logs.Add(new ChatLog(){actor = "system", isHidden = false, message = completion.Content[0].Text });
+        structuredLogs.analysis = expectedOutput.analysis;
+        
+        chatHistory.Chathistory1 = JsonSerializer.Serialize(structuredLogs);
+        dbContext.Update(chatHistory);
+        await dbContext.SaveChangesAsync();
 
         var response = new GenerateQuestionResponse()
         {
@@ -368,6 +393,29 @@ public static class HackwkndService
         };
 
         return response;
+    }
+
+    public static async Task<AskNotesRefResponse> TrackNotes(AskNotesRefRequest request, User user,
+        ApplicationDbContext dbContext, ChatClient chatClient)
+    {
+        // grab knowledge base
+        var noterecids = dbContext.Notesperusertags.Where(x => (x.Userrecid == user.Recid || x.IsPublic) && request.tags.Contains(x.Tag))
+            .Select(x => x.Recid)
+            .Distinct()
+            .ToList();
+        
+        var notes = dbContext.Notes.Where(x => noterecids.Contains(x.Recid)).ToList();
+        
+        // append the knowledge base
+        var notepreparation = string.Join("\n", notes.Select(x => $"{x.Recid}: {x.Datacontent}").ToList());
+        
+        // prepared konwledge base
+        
+        // ask gpt
+        
+        
+        // process the response
+        return new AskNotesRefResponse();
     }
 
 
