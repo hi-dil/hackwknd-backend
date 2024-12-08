@@ -422,8 +422,8 @@ public static class HackwkndService
     {
         // grab knowledge base
         var noterecids = dbContext.Notesperusertags.Where(x =>
-                (x.Userrecid == user.Recid && request.subject.Contains(x.Tag)) ||
-                (x.Ispublic == "true" && request.subject.Contains(x.Tag)))
+                (x.Userrecid == user.Recid && request.subject.ToLower() == x.Tag.ToLower()) ||
+                (x.Ispublic == "true" && request.subject.ToLower() == x.Tag.ToLower()))
             .Select(x => x.Recid)
             .Distinct()
             .ToList();
