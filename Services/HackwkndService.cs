@@ -12,12 +12,16 @@ using hackwknd_api.Models.ExtData;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json.Linq;
 using OpenAI.Chat;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
 using Note = hackwknd_api.Models.DB.Note;
 
 namespace hackwknd_api.Services;
 
 public static class HackwkndService
 {
+    private readonly static string _mediaPath = "/app/media"; // Path where the volume is mounted
+
     public static async Task<string> getUserToken(string email, ApplicationDbContext dbContext)
     {
         // check if user exist or not
@@ -75,17 +79,23 @@ public static class HackwkndService
         return user;
     }
 
-    public static async Task<string> InsertNote(InsertNoteRequest req, ApplicationDbContext dbContext, User user)
+    public static async Task<string> InsertNote(InsertNoteRequest req, ApplicationDbContext dbContext, User user,
+        bool isDev)
     {
+        if (!string.IsNullOrEmpty(req.fileName))
+        {
+            req.content = ExtractTextFromPdf(req.fileName, isDev);
+        }
+
         var extdata = new NoteExtdata()
         {
             title = req.title,
             tags = req.tags
         };
-        
+
         // Serialize the object to a JSON string
         var extdataString = JsonSerializer.Serialize(extdata);
-        
+
         var content = Regex.Replace(req.content, @"\s+", " ").Trim();
 
         var note = new Note()
@@ -108,24 +118,28 @@ public static class HackwkndService
     {
         var notes = dbContext.Notes.Where(x => x.Userrecid == user.Recid)
             .ToList();
-        
+
         var notelist = new List<NoteDto>();
-        
+
         foreach (var note in notes)
         {
             var pastQuiz = dbContext.Pastquizes
                 .Where(x => x.noterecid == note.Recid.ToString() && x.userrecid == user.Recid).ToList();
             List<AnalysisDto> analysislist = new();
-            
+
             foreach (var quiz in pastQuiz)
             {
                 var analysis = JsonSerializer.Deserialize<AnalysisDto>(quiz.analysis);
                 analysis.completedDate = quiz.completeddateutc.AddHours(8);
                 analysislist.Add(analysis);
             }
-            
+
             var extdata = JsonSerializer.Deserialize<NoteExtdata>(note.Extdata);
-            var notedto = new NoteDto() { content = note.Datacontent, tags = extdata.tags, title = extdata.title, noteid = note.Recid.ToString(), pastQuiz = analysislist};
+            var notedto = new NoteDto()
+            {
+                content = note.Datacontent, tags = extdata.tags, title = extdata.title, noteid = note.Recid.ToString(),
+                pastQuiz = analysislist
+            };
             notelist.Add(notedto);
         }
 
@@ -136,9 +150,9 @@ public static class HackwkndService
     {
         var notes = dbContext.Notes.Where(x => x.Userrecid == user.Recid)
             .ToList();
-        
+
         var notelist = new List<NoteDto>();
-        
+
         foreach (var note in notes)
         {
             var extdata = JsonSerializer.Deserialize<NoteExtdata>(note.Extdata);
@@ -149,7 +163,6 @@ public static class HackwkndService
         var tags = notelist.SelectMany(x => x.tags).Distinct().ToList();
 
         return tags;
-        
     }
 
     public static async Task<GenerateQuestionResponse> GenerateQuestion(GenerateQuestionRequest request,
@@ -166,50 +179,52 @@ public static class HackwkndService
         // // append the knowledge base
         // var notepreparation = string.Join("\n", notes.Select(x => x.Datacontent).ToList());
 
-        var notepreparation = dbContext.Notes.Where(x => request.noteid == x.Recid.ToString()).Select(x => x.Datacontent).FirstOrDefault();
-        
+        var notepreparation = dbContext.Notes.Where(x => request.noteid == x.Recid.ToString())
+            .Select(x => x.Datacontent).FirstOrDefault();
+
         // prepare the chat model
         var messages = new List<ChatMessage>
         {
-            new SystemChatMessage($"You are an expert in this topics {string.Join(", ", request.tags)} . Answer questions based only on the provided knowledge base."),
+            new SystemChatMessage(
+                $"You are an expert in this topics {string.Join(", ", request.tags)} . Answer questions based only on the provided knowledge base."),
             new AssistantChatMessage($"Knowledge Base: {notepreparation}"),
             new UserChatMessage($"Can you provide {request.questionAmount} questions based from the knowledge base?")
         };
-        
+
         ChatCompletionOptions options = new()
         {
             ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
                 jsonSchemaFormatName: "TopicsQuestions",
                 jsonSchema: BinaryData.FromBytes("""
-                        {
-                          "type": "object",
-                          "properties": {
-                            "questions": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "question": {
-                                    "type": "string"
-                                  },
-                                  "questionID": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": ["question", "questionID"],
-                                "additionalProperties": false
-                              }
-                            }
-                          },
-                          "required": ["questions"],
-                          "additionalProperties": false
-                        }
-                    """u8.ToArray()),
+                                                     {
+                                                       "type": "object",
+                                                       "properties": {
+                                                         "questions": {
+                                                           "type": "array",
+                                                           "items": {
+                                                             "type": "object",
+                                                             "properties": {
+                                                               "question": {
+                                                                 "type": "string"
+                                                               },
+                                                               "questionID": {
+                                                                 "type": "string"
+                                                               }
+                                                             },
+                                                             "required": ["question", "questionID"],
+                                                             "additionalProperties": false
+                                                           }
+                                                         }
+                                                       },
+                                                       "required": ["questions"],
+                                                       "additionalProperties": false
+                                                     }
+                                                 """u8.ToArray()),
                 jsonSchemaIsStrict: true)
         };
-        
+
         ChatCompletion completion = await chatClient.CompleteChatAsync(messages, options);
-        
+
         // save the result into db
         var logs = new List<ChatLog>()
         {
@@ -271,7 +286,7 @@ public static class HackwkndService
             chatId = chatLog.Recid.ToString(),
             question = expectedOutput
         };
-        
+
         return response;
     }
 
@@ -284,7 +299,7 @@ public static class HackwkndService
         {
             return null;
         }
-        
+
         // prepare the answer
         var structuredLogs = JsonSerializer.Deserialize<ChatHistoryExtdata>(chatHistory.Chathistory1);
 
@@ -301,11 +316,11 @@ public static class HackwkndService
                 case "system":
                     messages.Add(new SystemChatMessage(item.message));
                     break;
-                
+
                 case "assistant":
                     messages.Add(new AssistantChatMessage(item.message));
                     break;
-                
+
                 case "user":
                     messages.Add(new UserChatMessage(item.message));
                     break;
@@ -315,77 +330,78 @@ public static class HackwkndService
         var content =
             $"This is the user's answer based on the generated question, can you give explain the correct answer for all question, check if the answer provided for each question is correct or not? " +
             $" And how many they score based on the total question generated? \\n User Answer: {JsonSerializer.Serialize(request.answers)}";
-        
+
         messages.Add(new UserChatMessage(content));
-        structuredLogs.logs.Add(new ChatLog(){actor = "user", isHidden = false, message = content });
-        
+        structuredLogs.logs.Add(new ChatLog() { actor = "user", isHidden = false, message = content });
+
         // ask gpt
         ChatCompletionOptions options = new()
         {
             ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
                 jsonSchemaFormatName: "UserAnswer",
                 jsonSchema: BinaryData.FromBytes("""
-                        {
-                          "type": "object",
-                          "properties": {
-                            "analysis": {
-                              "type": "object",
-                              "properties": {
-                                "questions": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "object",
-                                    "properties": {
-                                      "question": {
-                                        "type": "string"
-                                      },
-                                      "explanation": {
-                                        "type": "string"
-                                      },
-                                      "isCorrect": {
-                                        "type": "boolean"
-                                      },
-                                      "userAnswer": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "required": ["question", "explanation", "isCorrect", "userAnswer"],
-                                    "additionalProperties": false
-                                  }
-                                },
-                                "score": {
-                                  "type": "object",
-                                  "properties": {
-                                    "userScore": {
-                                      "type": "string"
-                                    },
-                                    "totalQuestion": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": ["userScore", "totalQuestion"],
-                                  "additionalProperties": false
-                                }
-                              },
-                              "required": ["questions", "score"],
-                              "additionalProperties": false
-                            }
-                          },
-                          "required": ["analysis"],
-                          "additionalProperties": false
-                        }
-                    """u8.ToArray()),
+                                                     {
+                                                       "type": "object",
+                                                       "properties": {
+                                                         "analysis": {
+                                                           "type": "object",
+                                                           "properties": {
+                                                             "questions": {
+                                                               "type": "array",
+                                                               "items": {
+                                                                 "type": "object",
+                                                                 "properties": {
+                                                                   "question": {
+                                                                     "type": "string"
+                                                                   },
+                                                                   "explanation": {
+                                                                     "type": "string"
+                                                                   },
+                                                                   "isCorrect": {
+                                                                     "type": "boolean"
+                                                                   },
+                                                                   "userAnswer": {
+                                                                     "type": "string"
+                                                                   }
+                                                                 },
+                                                                 "required": ["question", "explanation", "isCorrect", "userAnswer"],
+                                                                 "additionalProperties": false
+                                                               }
+                                                             },
+                                                             "score": {
+                                                               "type": "object",
+                                                               "properties": {
+                                                                 "userScore": {
+                                                                   "type": "string"
+                                                                 },
+                                                                 "totalQuestion": {
+                                                                   "type": "string"
+                                                                 }
+                                                               },
+                                                               "required": ["userScore", "totalQuestion"],
+                                                               "additionalProperties": false
+                                                             }
+                                                           },
+                                                           "required": ["questions", "score"],
+                                                           "additionalProperties": false
+                                                         }
+                                                       },
+                                                       "required": ["analysis"],
+                                                       "additionalProperties": false
+                                                     }
+                                                 """u8.ToArray()),
                 jsonSchemaIsStrict: true)
         };
-        
+
         ChatCompletion completion = await chatClient.CompleteChatAsync(messages, options);
         var output = JObject.Parse(completion.Content[0].Text);
         var expectedOutput = JsonSerializer.Deserialize<GenerateQuestionResponse>(output.ToString());
-        
+
         // save to db
-        structuredLogs.logs.Add(new ChatLog(){actor = "system", isHidden = false, message = completion.Content[0].Text });
+        structuredLogs.logs.Add(new ChatLog()
+            { actor = "system", isHidden = false, message = completion.Content[0].Text });
         structuredLogs.analysis = expectedOutput.analysis;
-        
+
         chatHistory.Chathistory1 = JsonSerializer.Serialize(structuredLogs);
         chatHistory.Lastupdateutc = DateTime.UtcNow;
         dbContext.Update(chatHistory);
@@ -405,56 +421,60 @@ public static class HackwkndService
         ApplicationDbContext dbContext, ChatClient chatClient)
     {
         // grab knowledge base
-        var noterecids = dbContext.Notesperusertags.Where(x => (x.Userrecid == user.Recid  && request.subject.Contains(x.Tag)) || (x.Ispublic == "true" && request.subject.Contains(x.Tag)))
+        var noterecids = dbContext.Notesperusertags.Where(x =>
+                (x.Userrecid == user.Recid && request.subject.Contains(x.Tag)) ||
+                (x.Ispublic == "true" && request.subject.Contains(x.Tag)))
             .Select(x => x.Recid)
             .Distinct()
             .ToList();
-        
+
         var notes = dbContext.Notes.Where(x => noterecids.Contains(x.Recid)).ToList();
-        
+
         // append the knowledge base
         var notepreparation = string.Join("\n", notes.Select(x => $"{x.Recid}: {x.Datacontent}").ToList());
-        
+
         // prepare the chat model
         var messages = new List<ChatMessage>
         {
-            new SystemChatMessage($"You are an expert in this topics {string.Join(", ", request.subject)} . Answer questions based only on the provided knowledge base."),
+            new SystemChatMessage(
+                $"You are an expert in this topics {string.Join(", ", request.subject)} . Answer questions based only on the provided knowledge base."),
             new AssistantChatMessage($"Knowledge Base: {notepreparation}"),
-            new UserChatMessage($"Based on the provided knowledge base, which notes have mention on this? And can you answer what is the related topic for the question based on the given knowledge base? Question: {request.question}")
+            new UserChatMessage(
+                $"Based on the provided knowledge base, which notes have mention on this? And can you answer what is the related topic for the question based on the given knowledge base? Question: {request.question}")
         };
-        
+
         ChatCompletionOptions options = new()
         {
             ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
                 jsonSchemaFormatName: "TrackNotes",
                 jsonSchema: BinaryData.FromBytes("""
-                        {
-                          "type": "object",
-                          "properties": {
-                            "trackedNotes": {
-                              "type": "object",
-                              "properties": {
-                                "notesid": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "string"
-                                  }
-                                },
-                                "relatedTopic": {
-                                    "type": "string"
-                                }
-                              },
-                              "required": ["notesid", "relatedTopic"],
-                              "additionalProperties": false
-                            }
-                          },
-                          "required": ["trackedNotes"],
-                          "additionalProperties": false
-                        }
-                    """u8.ToArray()),
+                                                     {
+                                                       "type": "object",
+                                                       "properties": {
+                                                         "trackedNotes": {
+                                                           "type": "object",
+                                                           "properties": {
+                                                             "notesid": {
+                                                               "type": "array",
+                                                               "items": {
+                                                                 "type": "string"
+                                                               }
+                                                             },
+                                                             "relatedTopic": {
+                                                                 "type": "string"
+                                                             }
+                                                           },
+                                                           "required": ["notesid", "relatedTopic"],
+                                                           "additionalProperties": false
+                                                         }
+                                                       },
+                                                       "required": ["trackedNotes"],
+                                                       "additionalProperties": false
+                                                     }
+                                                 """u8.ToArray()),
                 jsonSchemaIsStrict: true)
         };
-        
+
         ChatCompletion completion = await chatClient.CompleteChatAsync(messages, options);
 
         var output = JObject.Parse(completion.Content[0].Text);
@@ -478,9 +498,8 @@ public static class HackwkndService
             subject = request.subject,
             trackedNotes = trackedNotes,
             topicResult = expectedOutput.relatedTopic
-            
         };
-        
+
         return response;
     }
 
@@ -502,5 +521,52 @@ public static class HackwkndService
             rng.GetBytes(tokenBytes);
             return Convert.ToBase64String(tokenBytes);
         }
+    }
+
+    private static string ExtractTextFromPdf(string fileName, bool isDev)
+    {
+        var filePath = "";
+
+        if (isDev)
+        {
+            var directory = Path.Combine(AppContext.BaseDirectory, "media");
+            if (!Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            filePath = Path.Combine(AppContext.BaseDirectory, "media", fileName);
+        }
+        else
+        {
+            filePath = Path.Combine(_mediaPath, fileName);
+        }
+
+        StringBuilder text = new StringBuilder();
+        using (PdfDocument document = PdfDocument.Open(filePath))
+        {
+            foreach (Page page in document.GetPages())
+            {
+                text.AppendLine(page.Text);
+            }
+        }
+
+        // Clean up the text:
+        string cleanedText = CleanText(text.ToString());
+        return cleanedText;
+    }
+
+    private static string CleanText(string inputText)
+    {
+        // Replace newlines with a space to avoid unnecessary breaks.
+        inputText = Regex.Replace(inputText, @"(\r\n|\r|\n)+", " ");
+
+        // Replace multiple spaces with a single space
+        inputText = Regex.Replace(inputText, @"\s+", " ");
+
+        // Trim leading/trailing spaces
+        inputText = inputText.Trim();
+
+        return inputText;
     }
 }

@@ -17,13 +17,15 @@ public class HackwkndController : ControllerBase
     private readonly IMapper _mapper;
     private readonly ChatClient _chatClient;
     private readonly string _mediaPath = "/app/media"; // Path where the volume is mounted
+    private readonly IWebHostEnvironment _env;
 
     // Inject the DbContext using the constructor
-    public HackwkndController(ApplicationDbContext dbContext, IMapper mapper, ChatClient chatClient)
+    public HackwkndController(ApplicationDbContext dbContext, IMapper mapper, ChatClient chatClient, IWebHostEnvironment env)
     {
         _dbContext = dbContext;
         _mapper = mapper;
         _chatClient = chatClient;
+        _env = env;
     }
 
     [HttpPost("login")]
@@ -74,7 +76,7 @@ public class HackwkndController : ControllerBase
         var token = authHeader.Substring("Bearer ".Length);
         var user = await HackwkndService.getUserInfo(token, _dbContext);
 
-        var insertNote = await HackwkndService.InsertNote(request, _dbContext, user);
+        var insertNote = await HackwkndService.InsertNote(request, _dbContext, user, _env.IsDevelopment());
         return new ActionResult<InsertNoteResponse>(new InsertNoteResponse() { noteid = insertNote });
     }
 
@@ -167,26 +169,57 @@ public class HackwkndController : ControllerBase
     [HttpPost("upload")]
     public async Task<IActionResult> UploadFile(IFormFile file)
     {
+        var filePath = "";
+        if (_env.IsDevelopment())
+        {
+            var directory = Path.Combine(AppContext.BaseDirectory, "media");
+            if (!Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+
+            }
+            
+            filePath = Path.Combine(AppContext.BaseDirectory, "media", file.FileName);
+        }
+        else
+        {
+            filePath = Path.Combine(_mediaPath, file.FileName);
+        }
+        
         if (file == null || file.Length == 0)
         {
             return BadRequest("No file uploaded.");
         }
-
-        var filePath = Path.Combine(_mediaPath, file.FileName);
-
+        
         using (var stream = new FileStream(filePath, FileMode.Create))
         {
             await file.CopyToAsync(stream);
         }
 
-        return Ok(new { FilePath = filePath });
+        return Ok(new { FilePath = filePath, FileName = file.FileName });
     }
 
     // File download endpoint
     [HttpGet("downloadpdf/{fileName}")]
     public IActionResult DownloadFile(string fileName)
     {
-        var filePath = Path.Combine(_mediaPath, fileName);
+        var filePath = "";
+        
+        if (_env.IsDevelopment())
+        {
+            var directory = Path.Combine(AppContext.BaseDirectory, "media");
+            if (!Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+
+            }
+            
+            filePath = Path.Combine(AppContext.BaseDirectory, "media", fileName);
+        }
+        else
+        {
+            filePath = Path.Combine(_mediaPath, fileName);
+        }
 
         if (!System.IO.File.Exists(filePath))
         {
